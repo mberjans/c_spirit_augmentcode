@@ -1,0 +1,15 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 14
+    },
+    "auditLog": "/Users/Mark/Research/C-Spirit/c_spirit_augmentcode/logs/.66112b1423a1e0aab87991667dc0785b254c21b9-audit.json",
+    "files": [
+        {
+            "date": 1754346229191,
+            "name": "/Users/Mark/Research/C-Spirit/c_spirit_augmentcode/logs/mcp-puppeteer-2025-08-04.log",
+            "hash": "45abc9aaee39ed7c8e9463b4f5f3db425971e362065914f5261d9c9037cc7146"
+        }
+    ],
+    "hashType": "sha256"
+}
