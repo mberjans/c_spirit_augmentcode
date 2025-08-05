@@ -30,12 +30,14 @@ try:
     from .pubmed_client import PubMedClient
     from .literature_processor import LiteratureProcessor
     from .download_manager import DownloadManager
-    
+    from .publisher_api_manager import PublisherAPIManager
+
     __all__ = [
         'PMCClient',
-        'PubMedClient', 
+        'PubMedClient',
         'LiteratureProcessor',
-        'DownloadManager'
+        'DownloadManager',
+        'PublisherAPIManager'
     ]
 except ImportError:
     # Classes not yet implemented
