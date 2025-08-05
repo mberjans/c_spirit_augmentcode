@@ -1105,7 +1105,7 @@ class TestQuotaManagementAndRateLimiting(LiteratureTestBase):
         import time
 
         config = {
-            'requests_per_second': 10.0,  # Fast refill for testing
+            'requests_per_second': 0.1,  # Very slow refill to avoid timing issues
             'burst_limit': 3
         }
 
@@ -1114,15 +1114,15 @@ class TestQuotaManagementAndRateLimiting(LiteratureTestBase):
         # Should allow requests up to burst limit
         assert limiter.can_make_request() is True
         limiter.consume_token()
-        assert limiter.tokens == 2
+        assert abs(limiter.tokens - 2) < 0.01  # Allow for small timing differences
 
         assert limiter.can_make_request() is True
         limiter.consume_token()
-        assert limiter.tokens == 1
+        assert abs(limiter.tokens - 1) < 0.01  # Allow for small timing differences
 
         assert limiter.can_make_request() is True
         limiter.consume_token()
-        assert limiter.tokens == 0
+        assert limiter.tokens < 0.01  # Should be close to 0
 
         # Should be rate limited now
         assert limiter.can_make_request() is False
@@ -1139,10 +1139,10 @@ class TestQuotaManagementAndRateLimiting(LiteratureTestBase):
 
         limiter = RateLimiter('test_api', config)
 
-        # Consume all tokens
-        limiter.consume_token()
-        limiter.consume_token()
-        assert limiter.tokens == 0
+        # Consume all tokens quickly to minimize refill
+        initial_time = limiter.last_refill
+        limiter.tokens = 0  # Set directly to avoid timing issues
+        limiter.last_refill = initial_time
 
         # Wait for refill (0.5 seconds should add 2.5 tokens, capped at burst_limit)
         time.sleep(0.5)

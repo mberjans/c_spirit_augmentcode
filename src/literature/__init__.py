@@ -31,13 +31,18 @@ try:
     from .literature_processor import LiteratureProcessor
     from .download_manager import DownloadManager
     from .publisher_api_manager import PublisherAPIManager
+    from .quota_manager import QuotaManager, QuotaTracker, RateLimiter, QuotaMiddleware
 
     __all__ = [
         'PMCClient',
         'PubMedClient',
         'LiteratureProcessor',
         'DownloadManager',
-        'PublisherAPIManager'
+        'PublisherAPIManager',
+        'QuotaManager',
+        'QuotaTracker',
+        'RateLimiter',
+        'QuotaMiddleware'
     ]
 except ImportError:
     # Classes not yet implemented
