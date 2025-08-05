@@ -465,6 +465,114 @@ class SPARQLQueryBuilder:
 
         return formatted_results
 
+    def build_term_relationship_queries(self,
+                                       term_uri: str,
+                                       ontology: str,
+                                       relationship_types: List[str] = None,
+                                       include_inverse: bool = True) -> Dict[str, str]:
+        """
+        Build SPARQL queries to find relationships between terms.
+
+        Args:
+            term_uri: URI of the source term
+            ontology: Target ontology name
+            relationship_types: List of relationship types to query (e.g., ['is_a', 'part_of'])
+            include_inverse: Whether to include inverse relationships
+
+        Returns:
+            Dictionary mapping relationship types to SPARQL query strings
+        """
+        prefixes = self._build_prefixes(ontology)
+
+        # Default relationship types if none provided
+        if relationship_types is None:
+            relationship_types = ['is_a', 'part_of', 'has_part', 'regulates', 'located_in']
+
+        queries = {}
+
+        for rel_type in relationship_types:
+            # Map relationship types to actual predicates
+            predicate_mapping = {
+                'is_a': 'rdfs:subClassOf',
+                'part_of': 'obo:BFO_0000050',  # part of
+                'has_part': 'obo:BFO_0000051',  # has part
+                'regulates': 'obo:RO_0002211',  # regulates
+                'located_in': 'obo:RO_0001025',  # located in
+                'develops_from': 'obo:RO_0002202',  # develops from
+                'derives_from': 'obo:RO_0001000',  # derives from
+            }
+
+            predicate = predicate_mapping.get(rel_type, rel_type)
+
+            # Forward relationship query
+            forward_query = f"""
+            {prefixes}
+
+            SELECT DISTINCT ?target ?targetLabel ?relation WHERE {{
+                <{term_uri}> {predicate} ?target .
+                ?target rdfs:label ?targetLabel .
+                BIND("{rel_type}" AS ?relation)
+            }}
+            ORDER BY ?targetLabel
+            """
+
+            queries[f"{rel_type}_forward"] = forward_query.strip()
+
+            # Inverse relationship query if requested
+            if include_inverse:
+                inverse_query = f"""
+                {prefixes}
+
+                SELECT DISTINCT ?source ?sourceLabel ?relation WHERE {{
+                    ?source {predicate} <{term_uri}> .
+                    ?source rdfs:label ?sourceLabel .
+                    BIND("{rel_type}_inverse" AS ?relation)
+                }}
+                ORDER BY ?sourceLabel
+                """
+
+                queries[f"{rel_type}_inverse"] = inverse_query.strip()
+
+        return queries
+
+    def execute_relationship_queries(self,
+                                   term_uri: str,
+                                   ontology: str,
+                                   relationship_types: List[str] = None,
+                                   include_inverse: bool = True) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Execute relationship queries and return formatted results.
+
+        Args:
+            term_uri: URI of the source term
+            ontology: Target ontology name
+            relationship_types: List of relationship types to query
+            include_inverse: Whether to include inverse relationships
+
+        Returns:
+            Dictionary mapping relationship types to lists of related terms
+        """
+        endpoint_url = self.get_ontology_endpoint(ontology)
+        if not endpoint_url:
+            return {"error": f"Unknown ontology: {ontology}"}
+
+        queries = self.build_term_relationship_queries(
+            term_uri, ontology, relationship_types, include_inverse
+        )
+
+        results = {}
+
+        for rel_type, query in queries.items():
+            query_results = self.execute_query(query, endpoint_url)
+
+            if "error" in query_results:
+                results[rel_type] = {"error": query_results["error"]}
+            else:
+                formatted_results = self.format_query_results(query_results)
+                results[rel_type] = formatted_results
+
+        return results
+
     def build_federated_query(self, term: str, endpoints: List[str]) -> str:
         """
         Build a federated SPARQL query across multiple endpoints.

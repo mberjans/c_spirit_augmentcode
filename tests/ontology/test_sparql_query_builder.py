@@ -385,3 +385,202 @@ class TestSPARQLQueryBuilder(OntologyTestBase):
             loaded_data = json.load(f)
         
         assert "results" in loaded_data
+
+    def test_build_term_relationship_queries_basic(self):
+        """Test basic term relationship query building."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        term_uri = "http://purl.obolibrary.org/obo/PO_0025034"  # leaf
+        queries = builder.build_term_relationship_queries(term_uri, "Plant Ontology")
+
+        assert isinstance(queries, dict)
+        assert len(queries) > 0
+
+        # Should have forward and inverse queries for default relationship types
+        expected_rel_types = ['is_a', 'part_of', 'has_part', 'regulates', 'located_in']
+        for rel_type in expected_rel_types:
+            assert f"{rel_type}_forward" in queries
+            assert f"{rel_type}_inverse" in queries
+
+        # Check query structure
+        for query_name, query in queries.items():
+            assert isinstance(query, str)
+            assert "select" in query.lower()
+            assert "where" in query.lower()
+            assert term_uri in query
+
+    def test_build_term_relationship_queries_specific_types(self):
+        """Test relationship query building with specific relationship types."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        term_uri = "http://purl.obolibrary.org/obo/PO_0025034"
+        relationship_types = ['is_a', 'part_of']
+
+        queries = builder.build_term_relationship_queries(
+            term_uri, "Plant Ontology", relationship_types
+        )
+
+        assert isinstance(queries, dict)
+
+        # Should only have queries for specified relationship types
+        expected_queries = ['is_a_forward', 'is_a_inverse', 'part_of_forward', 'part_of_inverse']
+        assert len(queries) == len(expected_queries)
+
+        for expected_query in expected_queries:
+            assert expected_query in queries
+
+        # Should not have other relationship types
+        assert 'has_part_forward' not in queries
+        assert 'regulates_forward' not in queries
+
+    def test_build_term_relationship_queries_no_inverse(self):
+        """Test relationship query building without inverse relationships."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        term_uri = "http://purl.obolibrary.org/obo/PO_0025034"
+        relationship_types = ['is_a', 'part_of']
+
+        queries = builder.build_term_relationship_queries(
+            term_uri, "Plant Ontology", relationship_types, include_inverse=False
+        )
+
+        assert isinstance(queries, dict)
+
+        # Should only have forward queries
+        expected_queries = ['is_a_forward', 'part_of_forward']
+        assert len(queries) == len(expected_queries)
+
+        for expected_query in expected_queries:
+            assert expected_query in queries
+
+        # Should not have inverse queries
+        assert 'is_a_inverse' not in queries
+        assert 'part_of_inverse' not in queries
+
+    def test_build_term_relationship_queries_predicate_mapping(self):
+        """Test that relationship types are correctly mapped to predicates."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        term_uri = "http://purl.obolibrary.org/obo/PO_0025034"
+        relationship_types = ['is_a', 'part_of', 'has_part']
+
+        queries = builder.build_term_relationship_queries(
+            term_uri, "Plant Ontology", relationship_types, include_inverse=False
+        )
+
+        # Check that correct predicates are used
+        assert 'rdfs:subClassOf' in queries['is_a_forward']
+        assert 'obo:BFO_0000050' in queries['part_of_forward']  # part of
+        assert 'obo:BFO_0000051' in queries['has_part_forward']  # has part
+
+    def test_build_term_relationship_queries_query_structure(self):
+        """Test the structure of generated relationship queries."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        term_uri = "http://purl.obolibrary.org/obo/PO_0025034"
+        relationship_types = ['is_a']
+
+        queries = builder.build_term_relationship_queries(
+            term_uri, "Plant Ontology", relationship_types
+        )
+
+        forward_query = queries['is_a_forward']
+        inverse_query = queries['is_a_inverse']
+
+        # Check forward query structure
+        assert 'SELECT DISTINCT ?target ?targetLabel ?relation' in forward_query
+        assert f'<{term_uri}> rdfs:subClassOf ?target' in forward_query
+        assert '?target rdfs:label ?targetLabel' in forward_query
+        assert 'BIND("is_a" AS ?relation)' in forward_query
+        assert 'ORDER BY ?targetLabel' in forward_query
+
+        # Check inverse query structure
+        assert 'SELECT DISTINCT ?source ?sourceLabel ?relation' in inverse_query
+        assert f'?source rdfs:subClassOf <{term_uri}>' in inverse_query
+        assert '?source rdfs:label ?sourceLabel' in inverse_query
+        assert 'BIND("is_a_inverse" AS ?relation)' in inverse_query
+        assert 'ORDER BY ?sourceLabel' in inverse_query
+
+    def test_execute_relationship_queries_basic(self):
+        """Test executing relationship queries."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        term_uri = "http://purl.obolibrary.org/obo/PO_0025034"
+
+        with patch.object(builder, 'execute_query') as mock_execute:
+            mock_execute.return_value = {
+                "results": {
+                    "bindings": [
+                        {
+                            "target": {"value": "http://example.org/plant_part"},
+                            "targetLabel": {"value": "plant part"},
+                            "relation": {"value": "is_a"}
+                        }
+                    ]
+                }
+            }
+
+            results = builder.execute_relationship_queries(
+                term_uri, "Plant Ontology", ['is_a'], include_inverse=False
+            )
+
+            assert isinstance(results, dict)
+            assert 'is_a_forward' in results
+            assert isinstance(results['is_a_forward'], list)
+            assert len(results['is_a_forward']) > 0
+
+            # Check result structure
+            result_item = results['is_a_forward'][0]
+            assert 'target' in result_item
+            assert 'targetLabel' in result_item
+            assert 'relation' in result_item
+
+    def test_execute_relationship_queries_unknown_ontology(self):
+        """Test executing relationship queries with unknown ontology."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        term_uri = "http://example.org/term"
+
+        results = builder.execute_relationship_queries(
+            term_uri, "Unknown Ontology", ['is_a']
+        )
+
+        assert isinstance(results, dict)
+        assert "error" in results
+        assert "Unknown ontology" in results["error"]
+
+    def test_execute_relationship_queries_with_errors(self):
+        """Test executing relationship queries when SPARQL queries fail."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        term_uri = "http://purl.obolibrary.org/obo/PO_0025034"
+
+        with patch.object(builder, 'execute_query') as mock_execute:
+            mock_execute.return_value = {
+                "error": "SPARQL endpoint error"
+            }
+
+            results = builder.execute_relationship_queries(
+                term_uri, "Plant Ontology", ['is_a'], include_inverse=False
+            )
+
+            assert isinstance(results, dict)
+            assert 'is_a_forward' in results
+            assert 'error' in results['is_a_forward']
+            assert "SPARQL endpoint error" in results['is_a_forward']['error']
