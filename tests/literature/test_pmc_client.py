@@ -772,3 +772,210 @@ class TestPMCClient(LiteratureTestBase):
         # Both should have progress_callback parameter
         assert 'progress_callback' in sync_sig.parameters
         assert 'progress_callback' in async_sig.parameters
+
+
+class TestPublisherAPIManager(LiteratureTestBase):
+    """Test cases for PublisherAPIManager class."""
+
+    def test_publisher_api_manager_initialization(self):
+        """Test PublisherAPIManager initialization."""
+        from src.literature.publisher_api_manager import PublisherAPIManager
+
+        manager = PublisherAPIManager()
+
+        assert manager is not None
+        assert hasattr(manager, 'registered_apis')
+        assert hasattr(manager, 'config')
+        assert isinstance(manager.registered_apis, dict)
+
+    def test_register_apis_success(self):
+        """Test successful API registration."""
+        from src.literature.publisher_api_manager import PublisherAPIManager
+
+        manager = PublisherAPIManager()
+
+        # Test API configuration
+        api_configs = {
+            'springer': {
+                'base_url': 'https://api.springer.com',
+                'api_key': 'test_springer_key',
+                'rate_limit': 1.0,
+                'timeout': 30
+            },
+            'elsevier': {
+                'base_url': 'https://api.elsevier.com',
+                'api_key': 'test_elsevier_key',
+                'rate_limit': 2.0,
+                'timeout': 45
+            }
+        }
+
+        result = manager.register_apis(api_configs)
+
+        assert result is True
+        assert len(manager.registered_apis) == 2
+        assert 'springer' in manager.registered_apis
+        assert 'elsevier' in manager.registered_apis
+
+        # Check API client properties
+        springer_client = manager.registered_apis['springer']
+        assert hasattr(springer_client, 'base_url')
+        assert hasattr(springer_client, 'api_key')
+        assert hasattr(springer_client, 'rate_limit')
+
+    def test_register_apis_empty_config(self):
+        """Test API registration with empty configuration."""
+        from src.literature.publisher_api_manager import PublisherAPIManager
+
+        manager = PublisherAPIManager()
+
+        result = manager.register_apis({})
+
+        assert result is True
+        assert len(manager.registered_apis) == 0
+
+    def test_register_apis_invalid_config(self):
+        """Test API registration with invalid configuration."""
+        from src.literature.publisher_api_manager import PublisherAPIManager
+
+        manager = PublisherAPIManager()
+
+        # Missing required fields
+        invalid_config = {
+            'springer': {
+                'base_url': 'https://api.springer.com'
+                # Missing api_key
+            }
+        }
+
+        with pytest.raises(ValueError, match="Missing required field"):
+            manager.register_apis(invalid_config)
+
+    def test_register_apis_duplicate_registration(self):
+        """Test registering the same API twice."""
+        from src.literature.publisher_api_manager import PublisherAPIManager
+
+        manager = PublisherAPIManager()
+
+        api_config = {
+            'springer': {
+                'base_url': 'https://api.springer.com',
+                'api_key': 'test_key',
+                'rate_limit': 1.0,
+                'timeout': 30
+            }
+        }
+
+        # First registration
+        result1 = manager.register_apis(api_config)
+        assert result1 is True
+
+        # Second registration (should update existing)
+        api_config['springer']['api_key'] = 'updated_key'
+        result2 = manager.register_apis(api_config)
+        assert result2 is True
+
+        # Should still have only one API registered
+        assert len(manager.registered_apis) == 1
+        assert manager.registered_apis['springer'].api_key == 'updated_key'
+
+    def test_register_apis_with_custom_client_class(self):
+        """Test API registration with custom client class."""
+        from src.literature.publisher_api_manager import PublisherAPIManager
+
+        manager = PublisherAPIManager()
+
+        # Mock custom client class
+        class MockPublisherClient:
+            def __init__(self, config):
+                self.config = config
+                self.base_url = config['base_url']
+                self.api_key = config['api_key']
+
+        api_config = {
+            'custom_publisher': {
+                'base_url': 'https://api.custom.com',
+                'api_key': 'test_key',
+                'client_class': MockPublisherClient
+            }
+        }
+
+        result = manager.register_apis(api_config)
+
+        assert result is True
+        assert len(manager.registered_apis) == 1
+        assert isinstance(manager.registered_apis['custom_publisher'], MockPublisherClient)
+
+    def test_register_apis_validation_errors(self):
+        """Test API registration validation errors."""
+        from src.literature.publisher_api_manager import PublisherAPIManager
+
+        manager = PublisherAPIManager()
+
+        # Test invalid URL format
+        invalid_url_config = {
+            'springer': {
+                'base_url': 'not_a_valid_url',
+                'api_key': 'test_key'
+            }
+        }
+
+        with pytest.raises(ValueError, match="Invalid URL format"):
+            manager.register_apis(invalid_url_config)
+
+        # Test empty API key
+        empty_key_config = {
+            'springer': {
+                'base_url': 'https://api.springer.com',
+                'api_key': ''
+            }
+        }
+
+        with pytest.raises(ValueError, match="API key cannot be empty"):
+            manager.register_apis(empty_key_config)
+
+    def test_register_apis_with_environment_variables(self):
+        """Test API registration using environment variables."""
+        from src.literature.publisher_api_manager import PublisherAPIManager
+
+        manager = PublisherAPIManager()
+
+        # Test with environment variable placeholders
+        api_config = {
+            'springer': {
+                'base_url': 'https://api.springer.com',
+                'api_key': '${SPRINGER_API_KEY}',
+                'rate_limit': 1.0
+            }
+        }
+
+        with patch.dict('os.environ', {'SPRINGER_API_KEY': 'env_test_key'}):
+            result = manager.register_apis(api_config)
+
+        assert result is True
+        assert manager.registered_apis['springer'].api_key == 'env_test_key'
+
+    def test_register_apis_logging(self):
+        """Test API registration logging."""
+        from src.literature.publisher_api_manager import PublisherAPIManager
+
+        manager = PublisherAPIManager()
+
+        api_config = {
+            'springer': {
+                'base_url': 'https://api.springer.com',
+                'api_key': 'test_key',
+                'rate_limit': 1.0
+            }
+        }
+
+        with patch.object(manager.logger, 'info') as mock_log_info:
+            result = manager.register_apis(api_config)
+
+        assert result is True
+        mock_log_info.assert_called()
+
+        # Check that sensitive information is not logged
+        log_calls = [call.args[0] for call in mock_log_info.call_args_list]
+        for call in log_calls:
+            assert 'test_key' not in call  # API key should not be in logs

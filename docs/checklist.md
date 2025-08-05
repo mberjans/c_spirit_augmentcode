@@ -95,7 +95,7 @@ For each functional component:
 - [x] **TICKET-002.08** - 🔵 Refactor PMC client for async operations (20 min)
 
 #### Publisher API Integration - TDD Implementation (150 min)
-- [ ] **TICKET-002.09** - 🔴 Write tests for `PublisherAPIManager.register_apis()` (20 min)
+- [x] **TICKET-002.09** - 🔴 Write tests for `PublisherAPIManager.register_apis()` (20 min)
 - [ ] **TICKET-002.10** - 🟢 Implement publisher API registration system (30 min)
 - [ ] **TICKET-002.11** - 🔴 Write tests for quota management and rate limiting (25 min)
 - [ ] **TICKET-002.12** - 🟢 Implement quota tracking and rate limiting middleware (35 min)
