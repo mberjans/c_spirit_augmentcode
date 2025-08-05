@@ -670,3 +670,105 @@ class TestPMCClient(LiteratureTestBase):
         assert len(results) == 1
         assert results[0]['status'] == 'error'
         assert 'validation' in results[0]['error'].lower() or 'xml' in results[0]['error'].lower()
+
+    @pytest.mark.asyncio
+    async def test_download_articles_async_method_exists(self):
+        """Test that async download method exists and has correct signature."""
+        from src.literature.pmc_client import PMCClient
+        import inspect
+
+        client = PMCClient({
+            'api_key': 'test_key',
+            'email': 'test@example.com'
+        })
+
+        # Check that the async method exists
+        assert hasattr(client, 'download_articles_async')
+
+        # Check that it's a coroutine function
+        assert inspect.iscoroutinefunction(client.download_articles_async)
+
+        # Check method signature
+        sig = inspect.signature(client.download_articles_async)
+        expected_params = ['article_ids', 'progress_callback', 'validate_xml', 'max_concurrent']
+        actual_params = list(sig.parameters.keys())
+
+        for param in expected_params:
+            assert param in actual_params
+
+    @pytest.mark.asyncio
+    async def test_download_articles_async_authentication_required(self):
+        """Test async download articles requires authentication."""
+        from src.literature.pmc_client import PMCClient
+
+        client = PMCClient({
+            'api_key': 'test_key',
+            'email': 'test@example.com'
+        })
+
+        # Not authenticated
+        client.is_authenticated = False
+
+        article_ids = ['PMC123456']
+
+        with pytest.raises(ValueError, match="Authentication required"):
+            await client.download_articles_async(article_ids)
+
+    @pytest.mark.asyncio
+    async def test_download_articles_async_empty_list(self):
+        """Test async download articles with empty list."""
+        from src.literature.pmc_client import PMCClient
+
+        client = PMCClient({
+            'api_key': 'test_key',
+            'email': 'test@example.com'
+        })
+
+        # Mock authentication
+        client.is_authenticated = True
+
+        results = await client.download_articles_async([])
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_download_articles_async_invalid_ids(self):
+        """Test async download articles with invalid PMC IDs."""
+        from src.literature.pmc_client import PMCClient
+
+        client = PMCClient({
+            'api_key': 'test_key',
+            'email': 'test@example.com'
+        })
+
+        # Mock authentication
+        client.is_authenticated = True
+
+        # Test with invalid ID format
+        with pytest.raises(ValueError, match="Invalid PMC ID format"):
+            await client.download_articles_async(['invalid_id'])
+
+    def test_async_method_integration_with_sync(self):
+        """Test that async method integrates well with sync methods."""
+        from src.literature.pmc_client import PMCClient
+
+        client = PMCClient({
+            'api_key': 'test_key',
+            'email': 'test@example.com'
+        })
+
+        # Both sync and async methods should exist
+        assert hasattr(client, 'download_articles')
+        assert hasattr(client, 'download_articles_async')
+
+        # They should have similar parameter signatures
+        import inspect
+        sync_sig = inspect.signature(client.download_articles)
+        async_sig = inspect.signature(client.download_articles_async)
+
+        # Both should have article_ids parameter
+        assert 'article_ids' in sync_sig.parameters
+        assert 'article_ids' in async_sig.parameters
+
+        # Both should have progress_callback parameter
+        assert 'progress_callback' in sync_sig.parameters
+        assert 'progress_callback' in async_sig.parameters

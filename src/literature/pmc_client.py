@@ -9,11 +9,14 @@ error handling.
 import os
 import time
 import re
+import asyncio
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Union
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import aiohttp
+from asyncio_throttle import Throttler
 from loguru import logger
 import yaml
 from pathlib import Path
@@ -458,3 +461,197 @@ class PMCClient:
                         f"{sum(1 for r in results if r['status'] == 'error')} failed")
 
         return results
+
+    async def download_articles_async(
+        self,
+        article_ids: List[str],
+        progress_callback: Optional[callable] = None,
+        validate_xml: bool = False,
+        max_concurrent: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Download articles from PMC asynchronously by their IDs.
+
+        Args:
+            article_ids: List of PMC IDs to download
+            progress_callback: Optional callback function for progress updates
+            validate_xml: Whether to validate XML content
+            max_concurrent: Maximum number of concurrent requests
+
+        Returns:
+            List of dictionaries containing download results
+
+        Raises:
+            ValueError: If authentication is required or invalid parameters
+        """
+        # Check authentication
+        if not self.is_authenticated:
+            raise ValueError("Authentication required. Call authenticate() first.")
+
+        # Handle empty list
+        if not article_ids:
+            return []
+
+        # Validate all PMC IDs first
+        for pmc_id in article_ids:
+            if pmc_id is None or pmc_id == '':
+                raise ValueError("PMC ID cannot be None or empty")
+
+            if not self._validate_pmc_id(pmc_id):
+                raise ValueError(f"Invalid PMC ID format: {pmc_id}")
+
+        # Create throttler for rate limiting
+        rate_limit_delay = self.config.get('rate_limit_delay', 0.34)
+        throttler = Throttler(rate_limit=1/rate_limit_delay)
+
+        # Create semaphore for concurrent request limiting
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        # Create async session
+        timeout = aiohttp.ClientTimeout(total=self.config.get('timeout', 30.0))
+        connector = aiohttp.TCPConnector(verify_ssl=self.config.get('verify_ssl', True))
+
+        async with aiohttp.ClientSession(
+            timeout=timeout,
+            connector=connector,
+            headers={'User-Agent': self.config.get('user_agent', 'C-Spirit PMC Client/1.0')}
+        ) as session:
+            # Create tasks for all downloads
+            tasks = []
+            for index, pmc_id in enumerate(article_ids, 1):
+                task = self._download_single_article_async(
+                    session, pmc_id, throttler, semaphore,
+                    index, len(article_ids), progress_callback, validate_xml
+                )
+                tasks.append(task)
+
+            # Execute all tasks concurrently
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            # Process results and handle exceptions
+            processed_results = []
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    processed_results.append({
+                        'pmc_id': article_ids[i],
+                        'status': 'error',
+                        'error': f"Async execution error: {str(result)}"
+                    })
+                else:
+                    processed_results.append(result)
+
+        self.logger.info(f"Downloaded {len(article_ids)} articles asynchronously: "
+                        f"{sum(1 for r in processed_results if r['status'] == 'success')} successful, "
+                        f"{sum(1 for r in processed_results if r['status'] == 'error')} failed")
+
+        return processed_results
+
+    async def _download_single_article_async(
+        self,
+        session: aiohttp.ClientSession,
+        pmc_id: str,
+        throttler: Throttler,
+        semaphore: asyncio.Semaphore,
+        index: int,
+        total: int,
+        progress_callback: Optional[callable] = None,
+        validate_xml: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Download a single article asynchronously.
+
+        Args:
+            session: aiohttp session
+            pmc_id: PMC ID to download
+            throttler: Rate limiting throttler
+            semaphore: Concurrency limiting semaphore
+            index: Current article index
+            total: Total number of articles
+            progress_callback: Optional progress callback
+            validate_xml: Whether to validate XML content
+
+        Returns:
+            Dictionary containing download result
+        """
+        async with semaphore:
+            async with throttler:
+                try:
+                    # Construct download URL
+                    download_url = f"{self.base_url}efetch.fcgi"
+                    params = {
+                        'db': 'pmc',
+                        'id': pmc_id,
+                        'retmode': 'xml',
+                        'api_key': self.config['api_key'],
+                        'email': self.config['email']
+                    }
+
+                    # Make async request
+                    async with session.get(download_url, params=params) as response:
+                        if response.status == 200:
+                            content = await response.read()
+
+                            # Validate XML if requested
+                            if validate_xml and not self._validate_xml_content(content):
+                                result = {
+                                    'pmc_id': pmc_id,
+                                    'status': 'error',
+                                    'error': 'Invalid XML content format'
+                                }
+                            else:
+                                result = {
+                                    'pmc_id': pmc_id,
+                                    'status': 'success',
+                                    'content': content,
+                                    'content_type': response.headers.get('content-type', 'application/xml'),
+                                    'size': len(content)
+                                }
+                        else:
+                            # Handle HTTP errors
+                            error_text = await response.text()
+                            error_message = f"HTTP {response.status}: {error_text}"
+                            result = {
+                                'pmc_id': pmc_id,
+                                'status': 'error',
+                                'error': error_message
+                            }
+                            self.logger.warning(f"Failed to download {pmc_id}: {error_message}")
+
+                except aiohttp.ClientError as e:
+                    error_message = f"Client error: {str(e)}"
+                    result = {
+                        'pmc_id': pmc_id,
+                        'status': 'error',
+                        'error': error_message
+                    }
+                    self.logger.error(f"Client error downloading {pmc_id}: {error_message}")
+
+                except asyncio.TimeoutError as e:
+                    error_message = f"Request timeout: {str(e)}"
+                    result = {
+                        'pmc_id': pmc_id,
+                        'status': 'error',
+                        'error': error_message
+                    }
+                    self.logger.error(f"Timeout downloading {pmc_id}: {error_message}")
+
+                except Exception as e:
+                    error_message = f"Unexpected error: {str(e)}"
+                    result = {
+                        'pmc_id': pmc_id,
+                        'status': 'error',
+                        'error': error_message
+                    }
+                    self.logger.error(f"Unexpected error downloading {pmc_id}: {error_message}")
+
+                # Call progress callback if provided
+                if progress_callback:
+                    try:
+                        if asyncio.iscoroutinefunction(progress_callback):
+                            await progress_callback(index, total, pmc_id)
+                        else:
+                            progress_callback(index, total, pmc_id)
+                    except Exception as e:
+                        self.logger.warning(f"Progress callback error: {e}")
+
+                return result
