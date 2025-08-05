@@ -69,8 +69,8 @@ For each functional component:
 - [x] **TICKET-001.27** - 🔵 Refactor SPARQL queries for performance optimization (20 min)
 
 #### Documentation and Reporting (60 min)
-- [ ] **TICKET-001.28** - 🔴 Write tests for `JustificationGenerator.generate_selection_report()` (20 min)
-- [ ] **TICKET-001.29** - 🟢 Implement automated justification document generation (25 min)
+- [x] **TICKET-001.28** - 🔴 Write tests for `JustificationGenerator.generate_selection_report()` (20 min)
+- [x] **TICKET-001.29** - 🟢 Implement automated justification document generation (25 min)
 - [ ] **TICKET-001.30** - Create comprehensive documentation in `docs/ontology_trimming.md` (15 min)
 
 #### Integration Testing (45 min)
