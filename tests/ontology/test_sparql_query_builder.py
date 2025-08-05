@@ -584,3 +584,259 @@ class TestSPARQLQueryBuilder(OntologyTestBase):
             assert 'is_a_forward' in results
             assert 'error' in results['is_a_forward']
             assert "SPARQL endpoint error" in results['is_a_forward']['error']
+
+
+class TestSPARQLEndpointIntegration(OntologyTestBase):
+    """Test cases for SPARQL endpoint integration."""
+
+    def test_endpoint_connection_basic(self):
+        """Test basic endpoint connection functionality."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        # Test with mock endpoint
+        with patch('src.ontology.sparql_query_builder.SPARQLWrapper') as mock_sparql:
+            mock_endpoint = Mock()
+            mock_sparql.return_value = mock_endpoint
+
+            # Mock successful connection
+            mock_endpoint.query.return_value.convert.return_value = {
+                "results": {"bindings": []}
+            }
+
+            query = "SELECT ?s WHERE { ?s rdfs:label 'test' }"
+            endpoint_url = "http://test.example.org/sparql"
+
+            result = builder.execute_query(query, endpoint_url)
+
+            # Verify connection was attempted
+            mock_sparql.assert_called_once_with(endpoint_url)
+            mock_endpoint.setTimeout.assert_called_once()
+            mock_endpoint.setQuery.assert_called_once_with(query)
+            mock_endpoint.setReturnFormat.assert_called_once()
+
+            assert isinstance(result, dict)
+            assert "results" in result
+
+    def test_endpoint_timeout_handling(self):
+        """Test endpoint timeout handling."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder(timeout=5)
+
+        with patch('src.ontology.sparql_query_builder.SPARQLWrapper') as mock_sparql:
+            mock_endpoint = Mock()
+            mock_sparql.return_value = mock_endpoint
+
+            # Mock timeout
+            mock_endpoint.query.side_effect = TimeoutError("Connection timeout")
+
+            query = "SELECT ?s WHERE { ?s rdfs:label 'test' }"
+            endpoint_url = "http://slow.example.org/sparql"
+
+            result = builder.execute_query(query, endpoint_url)
+
+            assert isinstance(result, dict)
+            assert "error" in result
+            assert "timeout" in result["error"].lower()
+            assert result["query"] == query
+            assert result["endpoint"] == endpoint_url
+
+    def test_endpoint_retry_mechanism(self):
+        """Test endpoint retry mechanism on failures."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder(max_retries=2, retry_delay=0.1)
+
+        with patch('src.ontology.sparql_query_builder.SPARQLWrapper') as mock_sparql:
+            mock_endpoint = Mock()
+            mock_sparql.return_value = mock_endpoint
+
+            # First call fails, second succeeds
+            mock_endpoint.query.side_effect = [
+                Exception("Network error"),
+                Mock(convert=Mock(return_value={"results": {"bindings": []}}))
+            ]
+
+            query = "SELECT ?s WHERE { ?s rdfs:label 'test' }"
+            endpoint_url = "http://unreliable.example.org/sparql"
+
+            result = builder.execute_query(query, endpoint_url)
+
+            # Should have retried once
+            assert mock_endpoint.query.call_count == 2
+            assert isinstance(result, dict)
+            assert "results" in result
+
+    def test_endpoint_max_retries_exceeded(self):
+        """Test behavior when max retries are exceeded."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder(max_retries=1, retry_delay=0.1)
+
+        with patch('src.ontology.sparql_query_builder.SPARQLWrapper') as mock_sparql:
+            mock_endpoint = Mock()
+            mock_sparql.return_value = mock_endpoint
+
+            # All calls fail
+            mock_endpoint.query.side_effect = Exception("Persistent error")
+
+            query = "SELECT ?s WHERE { ?s rdfs:label 'test' }"
+            endpoint_url = "http://broken.example.org/sparql"
+
+            result = builder.execute_query(query, endpoint_url)
+
+            # Should have tried max_retries + 1 times
+            assert mock_endpoint.query.call_count == 2
+            assert isinstance(result, dict)
+            assert "error" in result
+            assert "retries" in result["error"].lower()
+
+    def test_endpoint_user_agent_setting(self):
+        """Test that user agent is properly set for endpoint requests."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        custom_user_agent = "TestAgent/1.0"
+        builder = SPARQLQueryBuilder(user_agent=custom_user_agent)
+
+        with patch('src.ontology.sparql_query_builder.SPARQLWrapper') as mock_sparql:
+            mock_endpoint = Mock()
+            mock_sparql.return_value = mock_endpoint
+
+            mock_endpoint.query.return_value.convert.return_value = {
+                "results": {"bindings": []}
+            }
+
+            query = "SELECT ?s WHERE { ?s rdfs:label 'test' }"
+            endpoint_url = "http://test.example.org/sparql"
+
+            builder.execute_query(query, endpoint_url)
+
+            # Verify user agent was set
+            mock_endpoint.addCustomHttpHeader.assert_called_with("User-Agent", custom_user_agent)
+
+    def test_multiple_endpoint_queries(self):
+        """Test querying multiple endpoints sequentially."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        endpoints = [
+            "http://endpoint1.example.org/sparql",
+            "http://endpoint2.example.org/sparql"
+        ]
+
+        with patch('src.ontology.sparql_query_builder.SPARQLWrapper') as mock_sparql:
+            mock_endpoint = Mock()
+            mock_sparql.return_value = mock_endpoint
+
+            # Different responses for different endpoints
+            mock_endpoint.query.return_value.convert.side_effect = [
+                {"results": {"bindings": [{"term": {"value": "result1"}}]}},
+                {"results": {"bindings": [{"term": {"value": "result2"}}]}}
+            ]
+
+            query = "SELECT ?term WHERE { ?term rdfs:label 'test' }"
+
+            results = []
+            for endpoint in endpoints:
+                result = builder.execute_query(query, endpoint)
+                results.append(result)
+
+            assert len(results) == 2
+            assert mock_sparql.call_count == 2
+
+            # Verify different results
+            bindings1 = results[0]["results"]["bindings"]
+            bindings2 = results[1]["results"]["bindings"]
+            assert bindings1[0]["term"]["value"] == "result1"
+            assert bindings2[0]["term"]["value"] == "result2"
+
+    def test_endpoint_response_format_handling(self):
+        """Test handling of different endpoint response formats."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder()
+
+        with patch('src.ontology.sparql_query_builder.SPARQLWrapper') as mock_sparql:
+            mock_endpoint = Mock()
+            mock_sparql.return_value = mock_endpoint
+
+            # Test with complex response structure
+            complex_response = {
+                "head": {"vars": ["term", "label", "definition"]},
+                "results": {
+                    "bindings": [
+                        {
+                            "term": {"type": "uri", "value": "http://example.org/term1"},
+                            "label": {"type": "literal", "value": "Test Term"},
+                            "definition": {"type": "literal", "value": "A test term"}
+                        }
+                    ]
+                }
+            }
+
+            mock_endpoint.query.return_value.convert.return_value = complex_response
+
+            query = "SELECT ?term ?label ?definition WHERE { ?term rdfs:label ?label }"
+            endpoint_url = "http://test.example.org/sparql"
+
+            result = builder.execute_query(query, endpoint_url)
+
+            assert isinstance(result, dict)
+            assert "results" in result
+            assert "bindings" in result["results"]
+
+            binding = result["results"]["bindings"][0]
+            assert "term" in binding
+            assert "label" in binding
+            assert "definition" in binding
+            assert binding["term"]["value"] == "http://example.org/term1"
+
+    def test_endpoint_integration_with_caching(self):
+        """Test endpoint integration with query caching."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        builder = SPARQLQueryBuilder(enable_cache=True, cache_ttl=3600)
+
+        with patch('src.ontology.sparql_query_builder.SPARQLWrapper') as mock_sparql:
+            mock_endpoint = Mock()
+            mock_sparql.return_value = mock_endpoint
+
+            mock_response = {"results": {"bindings": [{"term": {"value": "cached_result"}}]}}
+            mock_endpoint.query.return_value.convert.return_value = mock_response
+
+            query = "SELECT ?term WHERE { ?term rdfs:label 'test' }"
+            endpoint_url = "http://test.example.org/sparql"
+
+            # First call should hit endpoint
+            result1 = builder.cached_execute_query(query, endpoint_url)
+
+            # Second call should use cache
+            result2 = builder.cached_execute_query(query, endpoint_url)
+
+            # Endpoint should only be called once
+            assert mock_endpoint.query.call_count == 1
+
+            # Results should be identical
+            assert result1 == result2
+            assert result1["results"]["bindings"][0]["term"]["value"] == "cached_result"
+
+    def test_sparql_wrapper_not_available(self):
+        """Test behavior when SPARQLWrapper is not available."""
+        from src.ontology.sparql_query_builder import SPARQLQueryBuilder
+
+        # Mock SPARQLWrapper as None (not available)
+        with patch('src.ontology.sparql_query_builder.SPARQLWrapper', None):
+            builder = SPARQLQueryBuilder()
+
+            query = "SELECT ?s WHERE { ?s rdfs:label 'test' }"
+            endpoint_url = "http://test.example.org/sparql"
+
+            result = builder.execute_query(query, endpoint_url)
+
+            assert isinstance(result, dict)
+            assert "results" in result
+            assert "bindings" in result["results"]
+            assert len(result["results"]["bindings"]) == 0

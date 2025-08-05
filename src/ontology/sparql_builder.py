@@ -242,16 +242,24 @@ class SPARQLBuilder:
             term_filters.append(f'CONTAINS(LCASE(str(?label)), LCASE("{term}"))')
             if include_synonyms:
                 term_filters.append(f'CONTAINS(LCASE(str(?synonym)), LCASE("{term}"))')
-        
+
         filter_clause = " || ".join(term_filters)
-        
+
+        # Build SELECT clause and OPTIONAL clauses based on include_synonyms
+        if include_synonyms:
+            select_clause = "SELECT ?term ?label ?synonym ?citation_count ?impact_score"
+            synonym_clauses = """
+            OPTIONAL { ?term obo:hasExactSynonym ?synonym }
+            OPTIONAL { ?term obo:hasRelatedSynonym ?synonym }"""
+        else:
+            select_clause = "SELECT ?term ?label ?citation_count ?impact_score"
+            synonym_clauses = ""
+
         query = f"""
         {prefixes_str}
-        
-        SELECT ?term ?label ?synonym ?citation_count ?impact_score WHERE {{
-            ?term rdfs:label ?label .
-            OPTIONAL {{ ?term obo:hasExactSynonym ?synonym }}
-            OPTIONAL {{ ?term obo:hasRelatedSynonym ?synonym }}
+
+        {select_clause} WHERE {{
+            ?term rdfs:label ?label .{synonym_clauses}
             
             # Citation count (approximated by usage in annotations)
             OPTIONAL {{
