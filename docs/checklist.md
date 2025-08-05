@@ -74,8 +74,8 @@ For each functional component:
 - [x] **TICKET-001.30** - Create comprehensive documentation in `docs/ontology_trimming.md` (15 min)
 
 #### Integration Testing (45 min)
-- [ ] **TICKET-001.31** - Create integration tests for complete ontology trimming pipeline (30 min)
-- [ ] **TICKET-001.32** - Run full test suite and ensure >90% validation score (15 min)
+- [x] **TICKET-001.31** - Create integration tests for complete ontology trimming pipeline (30 min)
+- [x] **TICKET-001.32** - Run full test suite and ensure >90% validation score (15 min)
 
 ---
 
