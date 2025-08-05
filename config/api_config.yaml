@@ -1,0 +1,192 @@
+# API Configuration for Literature Access Module
+# This file contains configuration settings for accessing various literature databases
+
+# PubMed Central (PMC) Configuration
+pmc:
+  # PMC API endpoint
+  base_url: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+  
+  # API key for PMC access (set via environment variable PMC_API_KEY)
+  api_key: "${PMC_API_KEY}"
+  
+  # Email address for API requests (required by NCBI)
+  email: "${PMC_EMAIL}"
+  
+  # Rate limiting settings
+  rate_limit:
+    requests_per_second: 3
+    burst_limit: 10
+    delay_between_requests: 0.34  # seconds
+  
+  # Retry configuration
+  retry:
+    max_attempts: 3
+    backoff_factor: 2.0
+    max_delay: 60.0
+  
+  # Request timeout settings
+  timeout:
+    connect: 10.0
+    read: 30.0
+    total: 60.0
+  
+  # Download settings
+  download:
+    formats: ["xml", "pdf"]
+    batch_size: 10
+    max_concurrent: 5
+    output_directory: "data/literature/pmc"
+
+# PubMed Configuration
+pubmed:
+  # PubMed API endpoint
+  base_url: "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/"
+  
+  # API key for PubMed access (set via environment variable PUBMED_API_KEY)
+  api_key: "${PUBMED_API_KEY}"
+  
+  # Email address for API requests (required by NCBI)
+  email: "${PUBMED_EMAIL}"
+  
+  # Rate limiting settings
+  rate_limit:
+    requests_per_second: 3
+    burst_limit: 10
+    delay_between_requests: 0.34  # seconds
+  
+  # Retry configuration
+  retry:
+    max_attempts: 3
+    backoff_factor: 2.0
+    max_delay: 60.0
+  
+  # Request timeout settings
+  timeout:
+    connect: 10.0
+    read: 30.0
+    total: 60.0
+  
+  # Search settings
+  search:
+    default_retmax: 100
+    max_results: 10000
+    sort_order: "relevance"
+    date_range: "2000/01/01:2024/12/31"
+
+# CrossRef Configuration (for DOI resolution)
+crossref:
+  base_url: "https://api.crossref.org/"
+  
+  # User agent for CrossRef requests
+  user_agent: "C-Spirit Literature Access (mailto:${CROSSREF_EMAIL})"
+  
+  # Rate limiting settings
+  rate_limit:
+    requests_per_second: 50
+    burst_limit: 100
+    delay_between_requests: 0.02  # seconds
+  
+  # Request timeout settings
+  timeout:
+    connect: 5.0
+    read: 15.0
+    total: 30.0
+
+# arXiv Configuration
+arxiv:
+  base_url: "http://export.arxiv.org/api/"
+  
+  # Rate limiting settings (arXiv is more restrictive)
+  rate_limit:
+    requests_per_second: 1
+    burst_limit: 5
+    delay_between_requests: 1.0  # seconds
+  
+  # Request timeout settings
+  timeout:
+    connect: 10.0
+    read: 30.0
+    total: 60.0
+
+# General Configuration
+general:
+  # Default output directory for all downloads
+  output_directory: "data/literature"
+  
+  # Logging configuration
+  logging:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    file: "logs/literature_access.log"
+  
+  # Cache settings
+  cache:
+    enabled: true
+    directory: "cache/literature"
+    ttl: 86400  # 24 hours in seconds
+    max_size: "1GB"
+  
+  # Database settings for metadata storage
+  database:
+    type: "sqlite"
+    path: "data/literature_metadata.db"
+    connection_pool_size: 10
+  
+  # File processing settings
+  processing:
+    text_extraction:
+      formats: ["xml", "html", "pdf"]
+      encoding: "utf-8"
+    
+    metadata_extraction:
+      include_abstracts: true
+      include_full_text: false
+      include_references: true
+      include_figures: false
+    
+    quality_filters:
+      min_abstract_length: 100
+      min_full_text_length: 1000
+      exclude_retracted: true
+      exclude_preprints: false
+
+# Environment-specific overrides
+development:
+  general:
+    logging:
+      level: "DEBUG"
+    cache:
+      ttl: 3600  # 1 hour for development
+  
+  pmc:
+    rate_limit:
+      requests_per_second: 1  # More conservative for development
+    download:
+      batch_size: 5
+
+production:
+  general:
+    logging:
+      level: "WARNING"
+    cache:
+      ttl: 604800  # 1 week for production
+  
+  pmc:
+    rate_limit:
+      requests_per_second: 3
+    download:
+      batch_size: 20
+      max_concurrent: 10
+
+testing:
+  general:
+    logging:
+      level: "DEBUG"
+    cache:
+      enabled: false
+  
+  pmc:
+    rate_limit:
+      requests_per_second: 10  # No rate limiting for tests
+    download:
+      batch_size: 2
