@@ -66,52 +66,71 @@ class SPARQLBuilder:
             "peco": "http://purl.obolibrary.org/obo/PECO_"
         }
     
-    def build_term_frequency_query(self, 
-                                 terms: List[str], 
+    def build_term_frequency_query(self,
+                                 terms: List[str],
                                  ontology_prefix: str = "po") -> str:
         """
         Build a SPARQL query to analyze term frequency in ontology.
-        
+
         Args:
             terms: List of terms to analyze
             ontology_prefix: Ontology prefix to use
-            
+
         Returns:
             SPARQL query string for term frequency analysis
         """
         prefixes_str = self._build_prefixes()
-        
-        # Create FILTER clause for terms
-        term_filters = []
-        for term in terms:
-            term_filters.append(f'CONTAINS(LCASE(str(?label)), LCASE("{term}"))')
-        
-        filter_clause = " || ".join(term_filters)
-        
+
+        # Pre-compute lowercase terms for better performance
+        lowercase_terms = [term.lower() for term in terms]
+
+        # Create optimized FILTER clause using VALUES for better performance
+        if len(terms) == 1:
+            filter_clause = f'CONTAINS(LCASE(str(?label)), "{lowercase_terms[0]}")'
+        else:
+            values_clause = " ".join([f'"{term}"' for term in lowercase_terms])
+            filter_clause = f"""
+            VALUES ?search_term {{ {values_clause} }}
+            FILTER(CONTAINS(LCASE(str(?label)), ?search_term))
+            """
+
+        # Get ontology prefix URI for filtering
+        ontology_uri = self.prefixes.get(ontology_prefix, ontology_prefix)
+
         query = f"""
         {prefixes_str}
-        
-        SELECT ?term ?label ?definition ?usage_count WHERE {{
+
+        SELECT ?term ?label ?definition (COALESCE(?usage_count, 0) AS ?final_usage_count) WHERE {{
+            # Filter by ontology first for better performance
             ?term rdfs:label ?label .
-            OPTIONAL {{ ?term rdfs:comment ?definition }}
-            OPTIONAL {{ ?term obo:IAO_0000115 ?definition }}
-            
-            # Count usage in relationships
-            {{
-                SELECT ?term (COUNT(?relation) AS ?usage_count) WHERE {{
+            FILTER(STRSTARTS(str(?term), "{ontology_uri}"))
+
+            # Apply term filter early
+            {filter_clause}
+
+            # Filter out deprecated terms early
+            FILTER NOT EXISTS {{ ?term owl:deprecated "true"^^xsd:boolean }}
+
+            # Get definition (prefer IAO definition over comment)
+            OPTIONAL {{
+                {{ ?term obo:IAO_0000115 ?definition }}
+                UNION
+                {{ ?term rdfs:comment ?definition . FILTER NOT EXISTS {{ ?term obo:IAO_0000115 ?def2 }} }}
+            }}
+
+            # Optimized usage count with separate optional block
+            OPTIONAL {{
+                SELECT ?term (COUNT(DISTINCT ?relation) AS ?usage_count) WHERE {{
                     {{ ?term ?relation ?object }} UNION {{ ?subject ?relation ?term }}
-                    FILTER(?relation != rdf:type)
+                    FILTER(?relation NOT IN (rdf:type, rdfs:label, rdfs:comment, obo:IAO_0000115))
                 }}
                 GROUP BY ?term
             }}
-            
-            FILTER({filter_clause})
-            FILTER(!BOUND(?deprecated) || ?deprecated != "true"^^xsd:boolean)
         }}
-        ORDER BY DESC(?usage_count) ?label
+        ORDER BY DESC(?final_usage_count) ?label
         LIMIT {self.config['default_limit']}
         """
-        
+
         return query.strip()
     
     def build_cross_reference_query(self, 
@@ -159,133 +178,151 @@ class SPARQLBuilder:
         
         return query.strip()
     
-    def build_hierarchical_analysis_query(self, 
-                                        term_uri: str, 
+    def build_hierarchical_analysis_query(self,
+                                        term_uri: str,
                                         max_depth: int = 3) -> str:
         """
         Build a SPARQL query for hierarchical relationship analysis.
-        
+
         Args:
             term_uri: URI of the term to analyze
             max_depth: Maximum depth for hierarchy traversal
-            
+
         Returns:
             SPARQL query string for hierarchical analysis
         """
         prefixes_str = self._build_prefixes()
-        
+
+        # Optimized query using property paths with depth limits
         query = f"""
         {prefixes_str}
-        
+
         SELECT ?term ?label ?relation_type ?depth ?path WHERE {{
             {{
-                # Parents (ancestors)
-                <{term_uri}> rdfs:subClassOf+ ?term .
+                # Optimized parents query with depth calculation
+                <{term_uri}> rdfs:subClassOf{{1,{max_depth}}} ?term .
                 ?term rdfs:label ?label .
                 BIND("parent" AS ?relation_type)
-                
-                # Calculate depth
+
+                # More efficient depth calculation using property path
                 {{
-                    SELECT ?term (COUNT(?intermediate) AS ?depth) WHERE {{
-                        <{term_uri}> rdfs:subClassOf+ ?intermediate .
-                        ?intermediate rdfs:subClassOf* ?term .
+                    SELECT ?term (COUNT(?step) AS ?depth) WHERE {{
+                        <{term_uri}> rdfs:subClassOf/rdfs:subClassOf* ?step .
+                        ?step rdfs:subClassOf* ?term .
+                        FILTER(?step != <{term_uri}>)
                     }}
                     GROUP BY ?term
                 }}
-                
-                FILTER(?depth <= {max_depth})
             }} UNION {{
-                # Children (descendants)
-                ?term rdfs:subClassOf+ <{term_uri}> .
+                # Optimized children query with depth calculation
+                ?term rdfs:subClassOf{{1,{max_depth}}} <{term_uri}> .
                 ?term rdfs:label ?label .
                 BIND("child" AS ?relation_type)
-                
-                # Calculate depth
+
+                # More efficient depth calculation using property path
                 {{
-                    SELECT ?term (COUNT(?intermediate) AS ?depth) WHERE {{
-                        ?term rdfs:subClassOf+ ?intermediate .
-                        ?intermediate rdfs:subClassOf* <{term_uri}> .
+                    SELECT ?term (COUNT(?step) AS ?depth) WHERE {{
+                        ?term rdfs:subClassOf/rdfs:subClassOf* ?step .
+                        ?step rdfs:subClassOf* <{term_uri}> .
+                        FILTER(?step != ?term)
                     }}
                     GROUP BY ?term
                 }}
-                
-                FILTER(?depth <= {max_depth})
             }}
-            
-            # Build path string for visualization
-            BIND(CONCAT(str(?depth), ":", str(?relation_type)) AS ?path)
+
+            # Optimized path string construction
+            BIND(CONCAT(str(?depth), ":", ?relation_type) AS ?path)
+
+            # Filter out the original term itself
+            FILTER(?term != <{term_uri}>)
         }}
         ORDER BY ?relation_type ?depth ?label
         LIMIT {self.config['default_limit']}
         """
-        
+
         return query.strip()
     
-    def build_citation_impact_query(self, 
-                                   terms: List[str], 
+    def build_citation_impact_query(self,
+                                   terms: List[str],
                                    include_synonyms: bool = True) -> str:
         """
         Build a SPARQL query to assess citation impact of terms.
-        
+
         Args:
             terms: List of terms to analyze
             include_synonyms: Whether to include synonym analysis
-            
+
         Returns:
             SPARQL query string for citation impact analysis
         """
         prefixes_str = self._build_prefixes()
-        
-        # Create term filter
-        term_filters = []
-        for term in terms:
-            term_filters.append(f'CONTAINS(LCASE(str(?label)), LCASE("{term}"))')
+
+        # Pre-compute lowercase terms for better performance
+        lowercase_terms = [term.lower() for term in terms]
+
+        # Optimized term filtering using VALUES
+        if len(terms) == 1:
+            term_filter = f'CONTAINS(LCASE(str(?label)), "{lowercase_terms[0]}")'
             if include_synonyms:
-                term_filters.append(f'CONTAINS(LCASE(str(?synonym)), LCASE("{term}"))')
-
-        filter_clause = " || ".join(term_filters)
-
-        # Build SELECT clause and OPTIONAL clauses based on include_synonyms
-        if include_synonyms:
-            select_clause = "SELECT ?term ?label ?synonym ?citation_count ?impact_score"
-            synonym_clauses = """
-            OPTIONAL { ?term obo:hasExactSynonym ?synonym }
-            OPTIONAL { ?term obo:hasRelatedSynonym ?synonym }"""
+                synonym_filter = f'CONTAINS(LCASE(str(?synonym)), "{lowercase_terms[0]}")'
         else:
-            select_clause = "SELECT ?term ?label ?citation_count ?impact_score"
+            values_clause = " ".join([f'"{term}"' for term in lowercase_terms])
+            term_filter = f"""
+            VALUES ?search_term {{ {values_clause} }}
+            FILTER(CONTAINS(LCASE(str(?label)), ?search_term))
+            """
+            if include_synonyms:
+                synonym_filter = f"""
+                VALUES ?search_term_syn {{ {values_clause} }}
+                FILTER(CONTAINS(LCASE(str(?synonym)), ?search_term_syn))
+                """
+
+        # Build optimized SELECT and WHERE clauses
+        if include_synonyms:
+            select_clause = "SELECT ?term ?label ?synonym (COALESCE(?citation_count, 0) AS ?final_citation_count) (COALESCE(?impact_score, 0) AS ?final_impact_score)"
+            synonym_clauses = f"""
+            OPTIONAL {{
+                {{ ?term obo:hasExactSynonym ?synonym }}
+                UNION
+                {{ ?term obo:hasRelatedSynonym ?synonym }}
+                {synonym_filter if len(terms) > 1 else f'FILTER({synonym_filter})'}
+            }}"""
+        else:
+            select_clause = "SELECT ?term ?label (COALESCE(?citation_count, 0) AS ?final_citation_count) (COALESCE(?impact_score, 0) AS ?final_impact_score)"
             synonym_clauses = ""
 
         query = f"""
         {prefixes_str}
 
         {select_clause} WHERE {{
-            ?term rdfs:label ?label .{synonym_clauses}
-            
-            # Citation count (approximated by usage in annotations)
+            ?term rdfs:label ?label .
+
+            # Apply term filter early for performance
+            {term_filter if len(terms) > 1 else f'FILTER({term_filter})'}
+            {synonym_clauses}
+
+            # Optimized citation count with better filtering
             OPTIONAL {{
-                SELECT ?term (COUNT(?annotation) AS ?citation_count) WHERE {{
+                SELECT ?term (COUNT(DISTINCT ?annotation) AS ?citation_count) WHERE {{
                     ?annotation ?property ?term .
-                    FILTER(?property IN (obo:RO_0002612, obo:RO_0002614))  # evidence codes
+                    VALUES ?property {{ obo:RO_0002612 obo:RO_0002614 }}  # evidence codes
                 }}
                 GROUP BY ?term
             }}
-            
-            # Impact score based on relationships and usage
+
+            # Optimized impact score calculation
             OPTIONAL {{
                 SELECT ?term (COUNT(DISTINCT ?related) AS ?impact_score) WHERE {{
                     {{ ?term ?relation ?related }} UNION {{ ?related ?relation ?term }}
-                    FILTER(?relation != rdf:type)
-                    FILTER(?relation != rdfs:label)
+                    FILTER(?relation NOT IN (rdf:type, rdfs:label, rdfs:comment, obo:IAO_0000115))
                 }}
                 GROUP BY ?term
             }}
-            
-            FILTER({filter_clause})
         }}
-        ORDER BY DESC(?impact_score) DESC(?citation_count) ?label
+        ORDER BY DESC(?final_impact_score) DESC(?final_citation_count) ?label
         LIMIT {self.config['default_limit']}
         """
-        
+
         return query.strip()
     
     def build_term_validation_queries(self, 
@@ -530,3 +567,90 @@ class SPARQLBuilder:
             validation_result["warnings"].append("Query lacks LIMIT clause, may return large result set")
 
         return validation_result
+
+    def optimize_query_performance(self, query: str) -> str:
+        """
+        Apply performance optimizations to a SPARQL query.
+
+        Args:
+            query: Original SPARQL query string
+
+        Returns:
+            Optimized SPARQL query string
+        """
+        optimized_query = query
+
+        # Add query hints for better performance
+        if "SELECT" in query.upper() and "LIMIT" not in query.upper():
+            optimized_query += f"\nLIMIT {self.config['default_limit']}"
+
+        # Optimize FILTER placement - move early in query
+        lines = optimized_query.split('\n')
+        filter_lines = [line for line in lines if 'FILTER(' in line and 'OPTIONAL' not in line]
+        non_filter_lines = [line for line in lines if line not in filter_lines]
+
+        # Insert filters after WHERE clause for better performance
+        optimized_lines = []
+        where_found = False
+        for line in non_filter_lines:
+            optimized_lines.append(line)
+            if 'WHERE {' in line and not where_found:
+                where_found = True
+                # Add filters right after WHERE clause
+                for filter_line in filter_lines:
+                    if filter_line.strip():
+                        optimized_lines.append(filter_line)
+
+        # Remove duplicate filter lines from original positions
+        final_lines = []
+        for line in optimized_lines:
+            if line in filter_lines and any(f in final_lines for f in filter_lines):
+                continue  # Skip duplicate filter
+            final_lines.append(line)
+
+        return '\n'.join(final_lines)
+
+    def add_query_hints(self, query: str, hints: Dict[str, Any] = None) -> str:
+        """
+        Add performance hints to SPARQL queries.
+
+        Args:
+            query: Original query string
+            hints: Dictionary of performance hints
+
+        Returns:
+            Query with performance hints added
+        """
+        if hints is None:
+            hints = {
+                'use_index': True,
+                'parallel_execution': True,
+                'result_caching': True
+            }
+
+        # Add query hints as comments for SPARQL engines that support them
+        hint_comments = []
+
+        if hints.get('use_index', False):
+            hint_comments.append("# HINT: USE_INDEX")
+
+        if hints.get('parallel_execution', False):
+            hint_comments.append("# HINT: PARALLEL_EXECUTION")
+
+        if hints.get('result_caching', False):
+            hint_comments.append("# HINT: ENABLE_CACHING")
+
+        if hint_comments:
+            hints_str = '\n'.join(hint_comments)
+            # Insert hints after PREFIX declarations
+            lines = query.split('\n')
+            prefix_end = 0
+            for i, line in enumerate(lines):
+                if not line.strip().startswith('PREFIX') and line.strip():
+                    prefix_end = i
+                    break
+
+            lines.insert(prefix_end, hints_str)
+            return '\n'.join(lines)
+
+        return query

@@ -50,7 +50,7 @@ class TestSPARQLBuilder(OntologyTestBase):
         assert 'leaf' in query
         assert 'stem' in query
         assert 'usage_count' in query
-        assert 'ORDER BY DESC(?usage_count)' in query
+        assert 'ORDER BY DESC(?final_usage_count)' in query
         assert 'LIMIT 1000' in query
     
     def test_build_term_frequency_query_with_prefix(self):
@@ -96,12 +96,12 @@ class TestSPARQLBuilder(OntologyTestBase):
         assert isinstance(query, str)
         assert 'SELECT' in query
         assert term_uri in query
-        assert 'rdfs:subClassOf+' in query
+        assert 'rdfs:subClassOf{' in query  # Updated for optimized property path syntax
         assert 'relation_type' in query
         assert 'depth' in query
         assert 'parent' in query
         assert 'child' in query
-        assert 'FILTER(?depth <= 2)' in query
+        assert '{1,2}' in query  # Updated for optimized property path depth limits
     
     def test_build_citation_impact_query_basic(self):
         """Test citation impact query building."""
@@ -118,7 +118,7 @@ class TestSPARQLBuilder(OntologyTestBase):
         assert 'impact_score' in query
         assert 'leaf' in query
         assert 'photosynthesis' in query
-        assert 'ORDER BY DESC(?impact_score)' in query
+        assert 'ORDER BY DESC(?final_impact_score)' in query
     
     def test_build_citation_impact_query_no_synonyms(self):
         """Test citation impact query without synonyms."""
