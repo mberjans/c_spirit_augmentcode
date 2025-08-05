@@ -88,8 +88,8 @@ For each functional component:
 - [x] **TICKET-002.03** - Create configuration management for API credentials in `config/api_config.yaml` (10 min)
 
 #### PMC Integration - TDD Implementation (120 min)
-- [ ] **TICKET-002.04** - 🔴 Write tests for `PMCClient.authenticate()` in `tests/literature/test_pmc_client.py` (20 min)
-- [ ] **TICKET-002.05** - 🟢 Implement PMC authentication in `src/literature/pmc_client.py` (25 min)
+- [x] **TICKET-002.04** - 🔴 Write tests for `PMCClient.authenticate()` in `tests/literature/test_pmc_client.py` (20 min)
+- [x] **TICKET-002.05** - 🟢 Implement PMC authentication in `src/literature/pmc_client.py` (25 min)
 - [ ] **TICKET-002.06** - 🔴 Write tests for `PMCClient.download_articles()` with rate limiting (25 min)
 - [ ] **TICKET-002.07** - 🟢 Implement automated download workflows with retry logic (30 min)
 - [ ] **TICKET-002.08** - 🔵 Refactor PMC client for async operations (20 min)
