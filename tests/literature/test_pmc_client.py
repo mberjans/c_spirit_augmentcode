@@ -979,3 +979,358 @@ class TestPublisherAPIManager(LiteratureTestBase):
         log_calls = [call.args[0] for call in mock_log_info.call_args_list]
         for call in log_calls:
             assert 'test_key' not in call  # API key should not be in logs
+
+
+class TestQuotaManagementAndRateLimiting(LiteratureTestBase):
+    """Test cases for quota management and rate limiting functionality."""
+
+    def test_quota_tracker_initialization(self):
+        """Test QuotaTracker initialization."""
+        from src.literature.quota_manager import QuotaTracker
+
+        config = {
+            'daily_limit': 1000,
+            'hourly_limit': 100,
+            'minute_limit': 10
+        }
+
+        tracker = QuotaTracker('test_api', config)
+
+        assert tracker is not None
+        assert tracker.api_name == 'test_api'
+        assert tracker.daily_limit == 1000
+        assert tracker.hourly_limit == 100
+        assert tracker.minute_limit == 10
+        assert tracker.current_usage == {'daily': 0, 'hourly': 0, 'minute': 0}
+
+    def test_quota_tracker_usage_increment(self):
+        """Test quota usage increment."""
+        from src.literature.quota_manager import QuotaTracker
+
+        config = {
+            'daily_limit': 1000,
+            'hourly_limit': 100,
+            'minute_limit': 10
+        }
+
+        tracker = QuotaTracker('test_api', config)
+
+        # Test single increment
+        result = tracker.increment_usage()
+        assert result is True
+        assert tracker.current_usage['daily'] == 1
+        assert tracker.current_usage['hourly'] == 1
+        assert tracker.current_usage['minute'] == 1
+
+        # Test multiple increments
+        for i in range(5):
+            tracker.increment_usage()
+
+        assert tracker.current_usage['daily'] == 6
+        assert tracker.current_usage['hourly'] == 6
+        assert tracker.current_usage['minute'] == 6
+
+    def test_quota_tracker_limit_checking(self):
+        """Test quota limit checking."""
+        from src.literature.quota_manager import QuotaTracker
+
+        config = {
+            'daily_limit': 10,
+            'hourly_limit': 5,
+            'minute_limit': 2
+        }
+
+        tracker = QuotaTracker('test_api', config)
+
+        # Should be under limit initially
+        assert tracker.is_under_limit() is True
+
+        # Increment to minute limit
+        tracker.increment_usage()
+        tracker.increment_usage()
+
+        # Should be at minute limit
+        assert tracker.is_under_limit() is False
+        assert tracker.get_limiting_quota() == 'minute'
+
+    def test_quota_tracker_reset_functionality(self):
+        """Test quota reset functionality."""
+        from src.literature.quota_manager import QuotaTracker
+
+        config = {
+            'daily_limit': 1000,
+            'hourly_limit': 100,
+            'minute_limit': 10
+        }
+
+        tracker = QuotaTracker('test_api', config)
+
+        # Add some usage
+        for i in range(5):
+            tracker.increment_usage()
+
+        assert tracker.current_usage['minute'] == 5
+
+        # Reset minute quota
+        tracker.reset_quota('minute')
+        assert tracker.current_usage['minute'] == 0
+        assert tracker.current_usage['hourly'] == 5  # Should remain unchanged
+
+        # Reset all quotas
+        tracker.reset_all_quotas()
+        assert tracker.current_usage['daily'] == 0
+        assert tracker.current_usage['hourly'] == 0
+        assert tracker.current_usage['minute'] == 0
+
+    def test_rate_limiter_initialization(self):
+        """Test RateLimiter initialization."""
+        from src.literature.quota_manager import RateLimiter
+
+        config = {
+            'requests_per_second': 2.0,
+            'burst_limit': 5
+        }
+
+        limiter = RateLimiter('test_api', config)
+
+        assert limiter is not None
+        assert limiter.api_name == 'test_api'
+        assert limiter.requests_per_second == 2.0
+        assert limiter.burst_limit == 5
+        assert limiter.tokens == 5  # Should start with full burst
+
+    def test_rate_limiter_token_consumption(self):
+        """Test rate limiter token consumption."""
+        from src.literature.quota_manager import RateLimiter
+        import time
+
+        config = {
+            'requests_per_second': 10.0,  # Fast refill for testing
+            'burst_limit': 3
+        }
+
+        limiter = RateLimiter('test_api', config)
+
+        # Should allow requests up to burst limit
+        assert limiter.can_make_request() is True
+        limiter.consume_token()
+        assert limiter.tokens == 2
+
+        assert limiter.can_make_request() is True
+        limiter.consume_token()
+        assert limiter.tokens == 1
+
+        assert limiter.can_make_request() is True
+        limiter.consume_token()
+        assert limiter.tokens == 0
+
+        # Should be rate limited now
+        assert limiter.can_make_request() is False
+
+    def test_rate_limiter_token_refill(self):
+        """Test rate limiter token refill."""
+        from src.literature.quota_manager import RateLimiter
+        import time
+
+        config = {
+            'requests_per_second': 5.0,  # 5 tokens per second
+            'burst_limit': 2
+        }
+
+        limiter = RateLimiter('test_api', config)
+
+        # Consume all tokens
+        limiter.consume_token()
+        limiter.consume_token()
+        assert limiter.tokens == 0
+
+        # Wait for refill (0.5 seconds should add 2.5 tokens, capped at burst_limit)
+        time.sleep(0.5)
+        limiter._refill_tokens()
+
+        # Should have refilled to burst limit
+        assert limiter.tokens == 2
+
+    def test_rate_limiter_wait_time_calculation(self):
+        """Test rate limiter wait time calculation."""
+        from src.literature.quota_manager import RateLimiter
+
+        config = {
+            'requests_per_second': 2.0,  # 0.5 seconds per token
+            'burst_limit': 1
+        }
+
+        limiter = RateLimiter('test_api', config)
+
+        # Consume the only token
+        limiter.consume_token()
+        assert limiter.tokens == 0
+
+        # Should need to wait for next token
+        wait_time = limiter.get_wait_time()
+        assert wait_time > 0
+        assert wait_time <= 0.5  # Should be at most 0.5 seconds
+
+    def test_quota_manager_integration(self):
+        """Test QuotaManager integration with multiple APIs."""
+        from src.literature.quota_manager import QuotaManager
+
+        config = {
+            'springer': {
+                'daily_limit': 1000,
+                'hourly_limit': 100,
+                'requests_per_second': 1.0,
+                'burst_limit': 5
+            },
+            'elsevier': {
+                'daily_limit': 500,
+                'hourly_limit': 50,
+                'requests_per_second': 0.5,
+                'burst_limit': 3
+            }
+        }
+
+        manager = QuotaManager(config)
+
+        assert manager is not None
+        assert 'springer' in manager.quota_trackers
+        assert 'elsevier' in manager.rate_limiters
+
+        # Test request checking
+        assert manager.can_make_request('springer') is True
+        assert manager.can_make_request('elsevier') is True
+
+        # Test usage tracking
+        manager.record_request('springer')
+        springer_tracker = manager.quota_trackers['springer']
+        assert springer_tracker.current_usage['daily'] == 1
+
+    def test_quota_manager_rate_limiting_enforcement(self):
+        """Test QuotaManager rate limiting enforcement."""
+        from src.literature.quota_manager import QuotaManager
+
+        config = {
+            'test_api': {
+                'daily_limit': 1000,
+                'hourly_limit': 100,
+                'requests_per_second': 1.0,
+                'burst_limit': 2
+            }
+        }
+
+        manager = QuotaManager(config)
+
+        # Should allow initial requests up to burst limit
+        assert manager.can_make_request('test_api') is True
+        manager.record_request('test_api')
+
+        assert manager.can_make_request('test_api') is True
+        manager.record_request('test_api')
+
+        # Should be rate limited after burst
+        assert manager.can_make_request('test_api') is False
+
+        # Get wait time
+        wait_time = manager.get_wait_time('test_api')
+        assert wait_time > 0
+
+    def test_quota_manager_quota_limit_enforcement(self):
+        """Test QuotaManager quota limit enforcement."""
+        from src.literature.quota_manager import QuotaManager
+
+        config = {
+            'test_api': {
+                'daily_limit': 2,
+                'hourly_limit': 2,
+                'minute_limit': 2,
+                'requests_per_second': 10.0,  # High rate to avoid rate limiting
+                'burst_limit': 10
+            }
+        }
+
+        manager = QuotaManager(config)
+
+        # Make requests up to quota limit
+        assert manager.can_make_request('test_api') is True
+        manager.record_request('test_api')
+
+        assert manager.can_make_request('test_api') is True
+        manager.record_request('test_api')
+
+        # Should be quota limited now
+        assert manager.can_make_request('test_api') is False
+
+        # Check which quota is limiting
+        limiting_quota = manager.get_limiting_quota('test_api')
+        assert limiting_quota in ['daily', 'hourly', 'minute']
+
+    def test_quota_manager_error_handling(self):
+        """Test QuotaManager error handling for unknown APIs."""
+        from src.literature.quota_manager import QuotaManager
+
+        manager = QuotaManager({})
+
+        # Should handle unknown API gracefully
+        assert manager.can_make_request('unknown_api') is False
+
+        # Should not crash on recording request for unknown API
+        manager.record_request('unknown_api')  # Should not raise exception
+
+        # Should return None for wait time of unknown API
+        wait_time = manager.get_wait_time('unknown_api')
+        assert wait_time is None
+
+    def test_quota_manager_reset_functionality(self):
+        """Test QuotaManager reset functionality."""
+        from src.literature.quota_manager import QuotaManager
+
+        config = {
+            'test_api': {
+                'daily_limit': 100,
+                'hourly_limit': 50,
+                'minute_limit': 10,
+                'requests_per_second': 1.0,
+                'burst_limit': 5
+            }
+        }
+
+        manager = QuotaManager(config)
+
+        # Make some requests
+        for i in range(3):
+            manager.record_request('test_api')
+
+        tracker = manager.quota_trackers['test_api']
+        assert tracker.current_usage['daily'] == 3
+
+        # Reset quotas
+        manager.reset_quotas('test_api')
+        assert tracker.current_usage['daily'] == 0
+        assert tracker.current_usage['hourly'] == 0
+        assert tracker.current_usage['minute'] == 0
+
+    def test_middleware_integration(self):
+        """Test middleware integration with quota management."""
+        from src.literature.quota_manager import QuotaMiddleware
+
+        config = {
+            'test_api': {
+                'daily_limit': 100,
+                'requests_per_second': 2.0,
+                'burst_limit': 3
+            }
+        }
+
+        middleware = QuotaMiddleware(config)
+
+        # Test request interception
+        def mock_request_func():
+            return "success"
+
+        # Should allow request initially
+        result = middleware.intercept_request('test_api', mock_request_func)
+        assert result == "success"
+
+        # Should track the request
+        tracker = middleware.quota_manager.quota_trackers['test_api']
+        assert tracker.current_usage['daily'] == 1
