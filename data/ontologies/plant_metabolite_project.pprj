@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project>
+    <name>Plant Metabolite Knowledge Extraction</name>
+    <description>Ontology project for plant metabolite knowledge extraction system</description>
+    <ontology_uri>http://example.org/plant-metabolites</ontology_uri>
+    <main_file>plant_metabolite_ontology.owl</main_file>
+    <reasoner>HermiT</reasoner>
+    <plugins>
+        <plugin>OWL Viz</plugin>
+        <plugin>OntoGraf</plugin>
+        <plugin>SPARQL Query</plugin>
+        <plugin>Ontology Debugger</plugin>
+    </plugins>
+</project>

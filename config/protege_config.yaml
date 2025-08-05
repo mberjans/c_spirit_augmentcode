@@ -1,0 +1,88 @@
+# Protégé Configuration for Plant Metabolite Knowledge Extraction System
+# This file contains configuration settings for integrating Protégé with our project
+
+protege:
+  # Protégé installation settings
+  installation:
+    version: "5.6.4"  # Recommended version
+    download_url: "https://protege.stanford.edu/products.php#desktop-protege"
+    java_version: "11+"  # Required Java version
+    
+  # Project-specific settings
+  project:
+    base_directory: "data/ontologies"
+    main_ontology: "plant_metabolite_ontology.owl"
+    imported_ontologies:
+      - "chemont.owl"
+      - "np_classifier.owl" 
+      - "plant_metabolic_network.owl"
+      - "plant_ontology.owl"
+      - "ncbi_taxonomy.owl"
+      - "peco.owl"
+      - "gene_ontology.owl"
+      - "trait_ontology.owl"
+      - "chemfont.owl"
+    
+  # Reasoner configuration
+  reasoners:
+    default: "HermiT"
+    alternatives:
+      - "Pellet"
+      - "FaCT++"
+      - "ELK"
+    
+  # Plugin configuration
+  plugins:
+    required:
+      - "OWL Viz"
+      - "OntoGraf"
+      - "SPARQL Query"
+      - "Ontology Debugger"
+    optional:
+      - "WebProtégé"
+      - "Cellfie"
+      - "Matrix"
+      
+  # Export/Import settings
+  formats:
+    export:
+      - "OWL/XML"
+      - "RDF/XML"
+      - "Turtle"
+      - "N-Triples"
+      - "JSON-LD"
+    import:
+      - "OWL"
+      - "RDF"
+      - "OBO"
+      - "CSV"
+      
+  # Validation settings
+  validation:
+    consistency_check: true
+    reasoning_timeout: 300  # seconds
+    memory_limit: "4G"
+    
+  # Integration with Python tools
+  python_integration:
+    owlready2:
+      enabled: true
+      sync_directory: "data/ontologies"
+    rdflib:
+      enabled: true
+      serialization_format: "turtle"
+    sparql:
+      endpoint_url: "http://localhost:3030/plant_metabolites"
+      
+  # Version control integration
+  git:
+    track_changes: true
+    diff_tool: "owl-diff"
+    merge_strategy: "manual"
+    
+  # Backup and recovery
+  backup:
+    enabled: true
+    frequency: "daily"
+    retention_days: 30
+    location: "backups/ontologies"
