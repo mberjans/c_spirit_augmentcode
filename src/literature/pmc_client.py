@@ -289,3 +289,172 @@ class PMCClient:
             # Reset authentication state on failure
             if not self.is_authenticated:
                 self.last_auth_check = None
+
+    def _validate_pmc_id(self, pmc_id: str) -> bool:
+        """
+        Validate PMC ID format.
+
+        Args:
+            pmc_id: PMC ID to validate
+
+        Returns:
+            True if valid, False otherwise
+        """
+        if not pmc_id or not isinstance(pmc_id, str):
+            return False
+
+        # PMC IDs should start with 'PMC' followed by digits
+        import re
+        pattern = r'^PMC\d+$'
+        return bool(re.match(pattern, pmc_id))
+
+    def _validate_xml_content(self, content: bytes) -> bool:
+        """
+        Validate XML content format.
+
+        Args:
+            content: Content to validate
+
+        Returns:
+            True if valid XML, False otherwise
+        """
+        try:
+            import xml.etree.ElementTree as ET
+            ET.fromstring(content)
+            return True
+        except ET.ParseError:
+            return False
+        except Exception:
+            return False
+
+    def download_articles(
+        self,
+        article_ids: List[str],
+        progress_callback: Optional[callable] = None,
+        validate_xml: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Download articles from PMC by their IDs.
+
+        Args:
+            article_ids: List of PMC IDs to download
+            progress_callback: Optional callback function for progress updates
+            validate_xml: Whether to validate XML content
+
+        Returns:
+            List of dictionaries containing download results
+
+        Raises:
+            ValueError: If authentication is required or invalid parameters
+        """
+        # Check authentication
+        if not self.is_authenticated:
+            raise ValueError("Authentication required. Call authenticate() first.")
+
+        # Handle empty list
+        if not article_ids:
+            return []
+
+        # Validate all PMC IDs first
+        for pmc_id in article_ids:
+            if pmc_id is None or pmc_id == '':
+                raise ValueError("PMC ID cannot be None or empty")
+
+            if not self._validate_pmc_id(pmc_id):
+                raise ValueError(f"Invalid PMC ID format: {pmc_id}")
+
+        results = []
+        total_articles = len(article_ids)
+
+        for index, pmc_id in enumerate(article_ids, 1):
+            try:
+                # Respect rate limiting
+                self._respect_rate_limit()
+
+                # Construct download URL
+                download_url = f"{self.base_url}efetch.fcgi"
+                params = {
+                    'db': 'pmc',
+                    'id': pmc_id,
+                    'retmode': 'xml',
+                    'api_key': self.config['api_key'],
+                    'email': self.config['email']
+                }
+
+                # Make request
+                response = self.session.get(
+                    download_url,
+                    params=params,
+                    timeout=self.config.get('timeout', 30.0),
+                    verify=self.config.get('verify_ssl', True)
+                )
+
+                # Process response
+                if response.status_code == 200:
+                    content = response.content
+
+                    # Validate XML if requested
+                    if validate_xml and not self._validate_xml_content(content):
+                        results.append({
+                            'pmc_id': pmc_id,
+                            'status': 'error',
+                            'error': 'Invalid XML content format'
+                        })
+                    else:
+                        results.append({
+                            'pmc_id': pmc_id,
+                            'status': 'success',
+                            'content': content,
+                            'content_type': response.headers.get('content-type', 'application/xml'),
+                            'size': len(content)
+                        })
+                else:
+                    # Handle HTTP errors
+                    error_message = f"HTTP {response.status_code}: {response.text}"
+                    results.append({
+                        'pmc_id': pmc_id,
+                        'status': 'error',
+                        'error': error_message
+                    })
+
+                    self.logger.warning(f"Failed to download {pmc_id}: {error_message}")
+
+            except ConnectionError as e:
+                error_message = f"Network error: {str(e)}"
+                results.append({
+                    'pmc_id': pmc_id,
+                    'status': 'error',
+                    'error': error_message
+                })
+                self.logger.error(f"Network error downloading {pmc_id}: {error_message}")
+
+            except TimeoutError as e:
+                error_message = f"Request timeout: {str(e)}"
+                results.append({
+                    'pmc_id': pmc_id,
+                    'status': 'error',
+                    'error': error_message
+                })
+                self.logger.error(f"Timeout downloading {pmc_id}: {error_message}")
+
+            except Exception as e:
+                error_message = f"Unexpected error: {str(e)}"
+                results.append({
+                    'pmc_id': pmc_id,
+                    'status': 'error',
+                    'error': error_message
+                })
+                self.logger.error(f"Unexpected error downloading {pmc_id}: {error_message}")
+
+            # Call progress callback if provided
+            if progress_callback:
+                try:
+                    progress_callback(index, total_articles, pmc_id)
+                except Exception as e:
+                    self.logger.warning(f"Progress callback error: {e}")
+
+        self.logger.info(f"Downloaded {len(article_ids)} articles: "
+                        f"{sum(1 for r in results if r['status'] == 'success')} successful, "
+                        f"{sum(1 for r in results if r['status'] == 'error')} failed")
+
+        return results
