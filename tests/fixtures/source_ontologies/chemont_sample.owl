@@ -1,0 +1,55 @@
+<?xml version="1.0"?>
+<rdf:RDF xmlns="http://purl.obolibrary.org/obo/chemont.owl#"
+     xml:base="http://purl.obolibrary.org/obo/chemont.owl"
+     xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:owl="http://www.w3.org/2002/07/owl#"
+     xmlns:xml="http://www.w3.org/XML/1998/namespace"
+     xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+     xmlns:obo="http://purl.obolibrary.org/obo/">
+    <owl:Ontology rdf:about="http://purl.obolibrary.org/obo/chemont.owl">
+        <rdfs:label>Chemical Entities of Biological Interest (ChEBI) Ontology Sample</rdfs:label>
+        <rdfs:comment>Sample ChEBI ontology for testing multi-ontology integration</rdfs:comment>
+    </owl:Ontology>
+    
+    <!-- Chemical Entity -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/CHEBI_24431">
+        <rdfs:label>chemical entity</rdfs:label>
+        <rdfs:comment>A chemical entity is a physical entity of interest in chemistry</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Molecular Entity -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/CHEBI_23367">
+        <rdfs:label>molecular entity</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/CHEBI_24431"/>
+        <rdfs:comment>Any constitutionally or isotopically distinct atom, molecule, ion, ion pair, radical, radical ion, complex, conformer etc.</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Small Molecule -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/CHEBI_25367">
+        <rdfs:label>small molecule</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/CHEBI_23367"/>
+        <rdfs:comment>A small molecule is a low molecular weight organic compound</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Metabolite -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/CHEBI_25212">
+        <rdfs:label>metabolite</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/CHEBI_25367"/>
+        <rdfs:comment>Any intermediate or product resulting from metabolism</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Primary Metabolite -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/CHEBI_78675">
+        <rdfs:label>primary metabolite</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/CHEBI_25212"/>
+        <rdfs:comment>A metabolite that is essential for normal growth, development and reproduction</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Secondary Metabolite -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/CHEBI_25212">
+        <rdfs:label>secondary metabolite</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/CHEBI_25212"/>
+        <rdfs:comment>A metabolite that is not directly involved in normal growth, development or reproduction</rdfs:comment>
+    </owl:Class>
+</rdf:RDF>

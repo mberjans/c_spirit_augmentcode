@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<rdf:RDF xmlns="http://purl.obolibrary.org/obo/po.owl#"
+     xml:base="http://purl.obolibrary.org/obo/po.owl"
+     xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:owl="http://www.w3.org/2002/07/owl#"
+     xmlns:xml="http://www.w3.org/XML/1998/namespace"
+     xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+     xmlns:obo="http://purl.obolibrary.org/obo/">
+    <owl:Ontology rdf:about="http://purl.obolibrary.org/obo/po.owl">
+        <rdfs:label>Plant Ontology Sample</rdfs:label>
+        <rdfs:comment>Sample Plant Ontology for testing multi-ontology integration</rdfs:comment>
+    </owl:Ontology>
+    
+    <!-- Plant Anatomical Entity -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/PO_0025131">
+        <rdfs:label>plant anatomical entity</rdfs:label>
+        <rdfs:comment>An anatomical entity that is or was part of a plant</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Plant Structure -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/PO_0009011">
+        <rdfs:label>plant structure</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/PO_0025131"/>
+        <rdfs:comment>An anatomical structure that is or was part of a plant</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Leaf -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/PO_0025034">
+        <rdfs:label>leaf</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/PO_0009011"/>
+        <rdfs:comment>A phyllome that is not associated with a reproductive structure</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Root -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/PO_0009005">
+        <rdfs:label>root</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/PO_0009011"/>
+        <rdfs:comment>A plant axis that lacks shoot axis characteristics</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Stem -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/PO_0009047">
+        <rdfs:label>stem</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/PO_0009011"/>
+        <rdfs:comment>The main axis of a plant</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Flower -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/PO_0009046">
+        <rdfs:label>flower</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/PO_0009011"/>
+        <rdfs:comment>A determinate reproductive shoot system that has as parts a floral axis and at least one gynoecium or stamen</rdfs:comment>
+    </owl:Class>
+    
+    <!-- Fruit -->
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/PO_0009001">
+        <rdfs:label>fruit</rdfs:label>
+        <rdfs:subClassOf rdf:resource="http://purl.obolibrary.org/obo/PO_0009011"/>
+        <rdfs:comment>A multi-tissue plant structure that develops from a gynoecium and may have as parts additional floral structures</rdfs:comment>
+    </owl:Class>
+</rdf:RDF>
