@@ -109,8 +109,8 @@ For each functional component:
 - [x] **TICKET-002.18** - 🟢 Implement logging with correlation IDs and metrics (20 min)
 
 #### Integration Testing (60 min)
-- [ ] **TICKET-002.19** - Create integration tests for PMC and publisher API workflows (40 min)
-- [ ] **TICKET-002.20** - Validate authentication and download functionality (20 min)
+- [x] **TICKET-002.19** - Create integration tests for PMC and publisher API workflows (40 min)
+- [x] **TICKET-002.20** - Validate authentication and download functionality (20 min)
 
 ---
 
