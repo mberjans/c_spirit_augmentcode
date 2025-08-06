@@ -495,11 +495,11 @@ class TestAsyncErrorHandling:
 
 class TestErrorRecoveryMechanisms:
     """Test error recovery mechanisms."""
-    
+
     def test_retry_mechanism_success_after_failure(self):
         """Test successful retry after initial failure."""
         call_count = 0
-        
+
         def mock_request(*args, **kwargs):
             nonlocal call_count
             call_count += 1
@@ -511,7 +511,7 @@ class TestErrorRecoveryMechanisms:
                 mock_response.raise_for_status.return_value = None
                 mock_response.json.return_value = {'success': True}
                 return mock_response
-        
+
         with patch('requests.get', side_effect=mock_request):
             # Simulate retry logic
             max_retries = 3
@@ -525,7 +525,7 @@ class TestErrorRecoveryMechanisms:
                     if attempt == max_retries - 1:
                         raise
                     continue
-    
+
     def test_circuit_breaker_pattern(self):
         """Test circuit breaker pattern for error handling."""
         class SimpleCircuitBreaker:
@@ -535,14 +535,14 @@ class TestErrorRecoveryMechanisms:
                 self.failure_count = 0
                 self.last_failure_time = None
                 self.state = 'CLOSED'  # CLOSED, OPEN, HALF_OPEN
-            
+
             def call(self, func, *args, **kwargs):
                 if self.state == 'OPEN':
                     if time.time() - self.last_failure_time > self.timeout:
                         self.state = 'HALF_OPEN'
                     else:
                         raise Exception("Circuit breaker is OPEN")
-                
+
                 try:
                     result = func(*args, **kwargs)
                     if self.state == 'HALF_OPEN':
@@ -555,25 +555,235 @@ class TestErrorRecoveryMechanisms:
                     if self.failure_count >= self.failure_threshold:
                         self.state = 'OPEN'
                     raise
-        
+
         import time
-        
+
         def failing_function():
             raise Exception("Function failed")
-        
+
         circuit_breaker = SimpleCircuitBreaker(failure_threshold=2, timeout=1)
-        
+
         # First failure
         with pytest.raises(Exception):
             circuit_breaker.call(failing_function)
-        
+
         # Second failure - should open circuit
         with pytest.raises(Exception):
             circuit_breaker.call(failing_function)
-        
+
         # Circuit should be open now
         assert circuit_breaker.state == 'OPEN'
-        
+
         # Should raise circuit breaker exception
         with pytest.raises(Exception, match="Circuit breaker is OPEN"):
             circuit_breaker.call(failing_function)
+
+
+class TestStructuredLoggingSystem:
+    """Test structured logging system with correlation IDs and metrics."""
+
+    @pytest.fixture
+    def structured_logger(self):
+        """Create structured logger for testing."""
+        from src.literature.structured_logger import StructuredLogger
+        logger_instance = StructuredLogger()
+        # Reset metrics before each test
+        logger_instance.reset_metrics()
+        # Clear any existing correlation ID
+        logger_instance.clear_correlation_id()
+        return logger_instance
+
+    def test_correlation_id_generation(self, structured_logger):
+        """Test correlation ID generation and propagation."""
+        # Test automatic correlation ID generation
+        correlation_id = structured_logger.generate_correlation_id()
+        assert correlation_id is not None
+        assert isinstance(correlation_id, str)
+        assert len(correlation_id) > 0
+
+        # Test correlation ID format (should be UUID-like)
+        import re
+        uuid_pattern = r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        assert re.match(uuid_pattern, correlation_id)
+
+    def test_correlation_id_context_propagation(self, structured_logger):
+        """Test correlation ID context propagation across operations."""
+        correlation_id = "test-correlation-123"
+
+        # Set correlation ID in context
+        structured_logger.set_correlation_id(correlation_id)
+
+        # Verify it's propagated in log entries
+        with patch('loguru.logger.info') as mock_log:
+            structured_logger.info("Test message", extra_data={"key": "value"})
+
+            # Check that correlation ID is included in log call
+            mock_log.assert_called_once()
+            call_args = mock_log.call_args
+
+            # The structured data should include correlation_id
+            assert 'correlation_id' in str(call_args)
+            assert correlation_id in str(call_args)
+
+    def test_structured_log_format(self, structured_logger):
+        """Test structured log message format."""
+        correlation_id = "test-correlation-456"
+        structured_logger.set_correlation_id(correlation_id)
+
+        with patch('loguru.logger.info') as mock_log:
+            structured_logger.info(
+                "Test operation completed",
+                operation="test_operation",
+                duration_ms=150,
+                status="success",
+                extra_data={"items_processed": 42}
+            )
+
+            mock_log.assert_called_once()
+            call_args = mock_log.call_args
+
+            # Verify structured format includes all expected fields
+            log_data = str(call_args)
+            assert "Test operation completed" in log_data
+            assert "test_operation" in log_data
+            assert "150" in log_data
+            assert "success" in log_data
+            assert "42" in log_data
+            assert correlation_id in log_data
+
+    def test_metrics_collection(self, structured_logger):
+        """Test metrics collection and aggregation."""
+        # Log several operations with metrics
+        operations = [
+            {"operation": "download", "duration_ms": 100, "status": "success"},
+            {"operation": "download", "duration_ms": 150, "status": "success"},
+            {"operation": "download", "duration_ms": 200, "status": "error"},
+            {"operation": "parse", "duration_ms": 50, "status": "success"},
+        ]
+
+        for op in operations:
+            structured_logger.info(
+                f"Operation {op['operation']} completed",
+                **op
+            )
+
+        # Get collected metrics
+        metrics = structured_logger.get_metrics()
+
+        # Verify metrics structure
+        assert isinstance(metrics, dict)
+        assert 'operations' in metrics
+        assert 'download' in metrics['operations']
+        assert 'parse' in metrics['operations']
+
+        # Verify download metrics
+        download_metrics = metrics['operations']['download']
+        assert download_metrics['count'] == 3
+        assert download_metrics['success_count'] == 2
+        assert download_metrics['error_count'] == 1
+        assert download_metrics['avg_duration_ms'] == 150.0  # (100+150+200)/3
+
+    def test_log_level_filtering(self, structured_logger):
+        """Test log level filtering functionality."""
+        correlation_id = "test-correlation-789"
+        structured_logger.set_correlation_id(correlation_id)
+
+        with patch('loguru.logger.debug') as mock_debug, \
+             patch('loguru.logger.info') as mock_info, \
+             patch('loguru.logger.warning') as mock_warning, \
+             patch('loguru.logger.error') as mock_error:
+
+            # Test different log levels
+            structured_logger.debug("Debug message", operation="debug_op")
+            structured_logger.info("Info message", operation="info_op")
+            structured_logger.warning("Warning message", operation="warning_op")
+            structured_logger.error("Error message", operation="error_op")
+
+            # Verify each level was called
+            mock_debug.assert_called_once()
+            mock_info.assert_called_once()
+            mock_warning.assert_called_once()
+            mock_error.assert_called_once()
+
+    def test_error_logging_with_exception_details(self, structured_logger):
+        """Test error logging with exception details."""
+        correlation_id = "test-correlation-error"
+        structured_logger.set_correlation_id(correlation_id)
+
+        try:
+            # Simulate an error
+            raise ValueError("Test error for logging")
+        except Exception as e:
+            with patch('loguru.logger.error') as mock_error:
+                structured_logger.error(
+                    "Operation failed with exception",
+                    operation="test_operation",
+                    exception=str(e),
+                    exception_type=type(e).__name__
+                )
+
+                mock_error.assert_called_once()
+                call_args = mock_error.call_args
+                log_data = str(call_args)
+
+                # Verify exception details are included
+                assert "ValueError" in log_data
+                assert "Test error for logging" in log_data
+                assert correlation_id in log_data
+
+    def test_performance_metrics_tracking(self, structured_logger):
+        """Test performance metrics tracking."""
+        import time
+
+        # Test timing context manager
+        with structured_logger.time_operation("test_operation") as timer:
+            time.sleep(0.1)  # Simulate work
+
+        # Verify timing was recorded
+        metrics = structured_logger.get_metrics()
+        assert 'operations' in metrics
+        assert 'test_operation' in metrics['operations']
+
+        op_metrics = metrics['operations']['test_operation']
+        assert op_metrics['count'] == 1
+        assert op_metrics['avg_duration_ms'] >= 100  # Should be at least 100ms
+
+    def test_concurrent_logging_thread_safety(self, structured_logger):
+        """Test thread safety of concurrent logging operations."""
+        import threading
+        import time
+
+        errors = []
+        log_count = 0
+
+        def logging_thread(thread_id):
+            nonlocal log_count
+            try:
+                correlation_id = f"thread-{thread_id}-correlation"
+                structured_logger.set_correlation_id(correlation_id)
+
+                for i in range(10):
+                    structured_logger.info(
+                        f"Thread {thread_id} message {i}",
+                        thread_id=thread_id,
+                        message_id=i,
+                        operation="concurrent_test"
+                    )
+                    log_count += 1
+                    time.sleep(0.001)  # Small delay
+            except Exception as e:
+                errors.append(e)
+
+        # Run multiple threads
+        threads = []
+        for thread_id in range(5):
+            thread = threading.Thread(target=logging_thread, args=(thread_id,))
+            threads.append(thread)
+            thread.start()
+
+        for thread in threads:
+            thread.join()
+
+        # Verify no errors occurred
+        assert len(errors) == 0
+        assert log_count == 50  # 5 threads * 10 messages each

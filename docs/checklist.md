@@ -104,9 +104,9 @@ For each functional component:
 
 #### Error Handling and Logging (90 min)
 - [x] **TICKET-002.15** - 🔴 Write tests for comprehensive error handling scenarios (25 min)
-- [ ] **TICKET-002.16** - 🟢 Implement robust error handling with exponential backoff (30 min)
-- [ ] **TICKET-002.17** - 🔴 Write tests for structured logging system (15 min)
-- [ ] **TICKET-002.18** - 🟢 Implement logging with correlation IDs and metrics (20 min)
+- [x] **TICKET-002.16** - 🟢 Implement robust error handling with exponential backoff (30 min)
+- [x] **TICKET-002.17** - 🔴 Write tests for structured logging system (15 min)
+- [x] **TICKET-002.18** - 🟢 Implement logging with correlation IDs and metrics (20 min)
 
 #### Integration Testing (60 min)
 - [ ] **TICKET-002.19** - Create integration tests for PMC and publisher API workflows (40 min)
